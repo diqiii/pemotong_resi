@@ -13,27 +13,39 @@ import base64
 st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout="centered")
 
 st.title("✂️ Mesin Pemotong Resi Otomatis")
-st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat")
+st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat, Filter Batal")
 
-# --- FUNGSI MESIN TIKTOK (V9 - MODE X-RAY TRANSPARAN) ---
+# --- FUNGSI MESIN TIKTOK (V10 - SENSOR WARNA ANTI-MERAH) ---
 def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h_asli, w = img_asli.shape[:2]
     
-    # Potong UI Menu (Tetap jalan)
     y_trim_atas = int(h_asli * 0.17)
     y_trim_bawah = int(h_asli * 0.85)
     
     img = img_asli[y_trim_atas:y_trim_bawah, 0:w]
     h = img.shape[0] 
     
+    # Bikin 2 Lensa: Hitam-Putih (Grayscale) dan Sensor Warna (HSV)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     
-    # Kembali murni ke logika aslimu (tanpa blur)
+    # Ambil tingkat Kepekatan Warna (Saturation)
+    sat = hsv[:, :, 1] 
+    
     crop_gray = gray[:, int(w*0.05) : int(w*0.95)]
+    crop_sat = sat[:, int(w*0.05) : int(w*0.95)]
+    
     row_std = np.std(crop_gray, axis=1)
     row_mean = np.mean(crop_gray, axis=1)
+    sat_mean = np.mean(crop_sat, axis=1) # Rata-rata warna di baris itu
     
-    is_garis_pemisah = (row_std < 12) & (row_mean > 220) & (row_mean < 252)
+    # =======================================================
+    # LOGIKA DEWA (USULANMU):
+    # std < 15 (Garis Datar)
+    # mean > 220 (Abu-abu Terang)
+    # sat_mean < 30 (HARUS NIRWARNA! Tulisan Merah auto-ditolak)
+    # =======================================================
+    is_garis_pemisah = (row_std < 15) & (row_mean > 220) & (row_mean < 252) & (sat_mean < 30)
     
     garis_ditemukan = []
     in_garis = False
@@ -54,7 +66,6 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
         if (h - start_y) >= 5: 
             garis_ditemukan.append((start_y, h))
 
-    # Logika Smart Slicer (Atap ke Lantai)
     batas_y = [0]
     for g_start, g_end in garis_ditemukan:
         batas_y.append((g_start + g_end) // 2)
@@ -68,8 +79,8 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
         if tinggi_resi > 150: 
             crop = img[y_atas:y_bawah, 0:w]
             
-            header_h = int(tinggi_resi * 0.50)
-            crop_ocr = cv2.cvtColor(crop[0:header_h, :], cv2.COLOR_BGR2GRAY)
+            # BACA 100% AREA GAMBAR (Tidak lagi dibatasi 50% atas)
+            crop_ocr = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
             crop_ocr = cv2.resize(crop_ocr, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
             
             thresh_adaptive = cv2.adaptiveThreshold(crop_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
@@ -81,7 +92,7 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
             teks_gabungan = teks_1 + " " + teks_2
             teks_upper = teks_gabungan.upper()
             
-            # CEK APAKAH KENA FILTER BATAL (TIDAK DIBUANG, TAPI DITANDAI)
+            # Filter Batal (X-Ray Mode)
             if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
                 nama_file = f"TikTok_{global_counter}_TERDETEKSI_BATAL.jpg"
                 cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
@@ -100,7 +111,6 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                     cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
                     global_counter += 1
             else:
-                # KEMBALIKAN FITUR CEK MANUAL JIKA GAGAL BACA ANGKA
                 nama_file = f"TikTok_{global_counter}_CEK_MANUAL.jpg"
                 cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
                 global_counter += 1
@@ -207,7 +217,7 @@ if tombol_proses:
     if not uploaded_files:
         st.warning("Upload fotonya dulu bro di dalam kotak!")
     else:
-        with st.spinner('Membedah gambar dengan Mode X-Ray...'):
+        with st.spinner('Membedah gambar dengan Mode Anti-Merah...'):
             temp_dir = "temp_hasil"
             if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
             os.makedirs(temp_dir)
@@ -227,7 +237,7 @@ if tombol_proses:
             hasil_files = os.listdir(temp_dir)
             
             if len(hasil_files) > 0:
-                st.success(f"🎉 Selesai! Menemukan {len(hasil_files)} potongan (Cek nama file di bawah untuk diagnosa).")
+                st.success(f"🎉 Selesai! Menemukan {len(hasil_files)} potongan.")
                 
                 js_files_array = []
                 for filename in hasil_files:
@@ -273,7 +283,6 @@ if tombol_proses:
                     with col1:
                         st.image(img_bytes, use_container_width=True)
                     with col2:
-                        # Kasih warna teks merah kalau bermasalah biar gampang dilirik
                         if "TERDETEKSI_BATAL" in filename or "CEK_MANUAL" in filename:
                             st.markdown(f"**🔴 {filename}**")
                         else:
@@ -288,4 +297,4 @@ if tombol_proses:
                         )
                     st.divider()
             else:
-                st.error("Sama sekali gagal memotong. Garis abu-abu tidak terdeteksi.")
+                st.error("Sama sekali gagal memotong. Pastikan gambar valid.")
