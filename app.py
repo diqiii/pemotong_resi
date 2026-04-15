@@ -15,7 +15,7 @@ st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout=
 st.title("✂️ Mesin Pemotong Resi Otomatis")
 st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat, Filter Batal")
 
-# --- FUNGSI MESIN TIKTOK ---
+# --- FUNGSI MESIN TIKTOK (V6 - KEBAL KOMPRESI & RESOLUSI) ---
 def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h_asli, w = img_asli.shape[:2]
     
@@ -27,11 +27,15 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    crop_gray = gray[:, int(w*0.05) : int(w*0.95)]
+    # Kacamata Anti-Noise (Blur) biar bintik kompresi WA hilang
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    crop_gray = blur[:, int(w*0.05) : int(w*0.95)]
     row_std = np.std(crop_gray, axis=1)
     row_mean = np.mean(crop_gray, axis=1)
     
-    is_garis_pemisah = (row_std < 8) & (row_mean > 225) & (row_mean < 250)
+    # Toleransi Warna Diperlebar
+    is_garis_pemisah = (row_std < 15) & (row_mean > 220) & (row_mean < 252)
     
     garis_ditemukan = []
     in_garis = False
@@ -44,12 +48,14 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                 start_y = y
         else:
             if in_garis:
-                if (y - start_y) >= 10: 
+                # KETEBALAN DINAMIS: Turun jadi 5 Pixel!
+                # Biar file kecil/kompresan di laptop nggak ada yang ke-skip
+                if (y - start_y) >= 5: 
                     garis_ditemukan.append((start_y, y))
                 in_garis = False
 
     if in_garis:
-        if (h - start_y) >= 10: 
+        if (h - start_y) >= 5: 
             garis_ditemukan.append((start_y, h))
 
     if len(garis_ditemukan) >= 2:
@@ -58,7 +64,8 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
             y_bawah = garis_ditemukan[i+1][0]
             tinggi_resi = y_bawah - y_atas
             
-            if tinggi_resi > 250:
+            # Filter tinggi resi minimal (diturunkan dikit untuk file kompresan)
+            if tinggi_resi > 150: 
                 crop = img[y_atas:y_bawah, 0:w]
                 
                 header_h = int(tinggi_resi * 0.50)
@@ -74,15 +81,14 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                 teks_gabungan = teks_1 + " " + teks_2
                 teks_upper = teks_gabungan.upper()
                 
-                # --- JURUS SATPAM 1: TOLAK RESI BATAL ---
+                # Filter Batal
                 if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
-                    continue # Langsung buang, lanjut ke resi berikutnya
+                    continue 
                 
                 match = re.search(r'#\s*([A-Za-z0-9]{10,})', teks_gabungan)
                 if not match:
                     match = re.search(r'(\d{15,})', teks_gabungan)
                 
-                # --- JURUS SATPAM 2: TOLAK JIKA GAK ADA NOMOR (Hilangkan CEK MANUAL) ---
                 if match:
                     nomor_pesanan = match.group(1)
                     if nomor_pesanan not in database_nomor:
@@ -136,13 +142,11 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
         teks_full = pytesseract.image_to_string(thresh)
         teks_upper = teks_full.upper()
         
-        # --- JURUS SATPAM 1: TOLAK RESI BATAL ---
         if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
-            return global_counter # Langsung buang
+            return global_counter 
             
         match = re.search(r'([0-9]{6}[A-Z0-9]{8,10})', teks_full)
         
-        # --- JURUS SATPAM 2: HANYA SIMPAN JIKA ADA NOMOR ---
         if match:
             nomor_pesanan = match.group(1)
             
@@ -181,21 +185,13 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
 # --- ANTARMUKA STREAMLIT ---
 platform = st.radio("Pilih Platform Resi:", ("TikTok Shop", "Shopee"), horizontal=True)
 
-# ==============================================================
-# PERBAIKAN: BUNGKUS UPLOADER & TOMBOL KE DALAM "FORM"
-# Ini mencegah koneksi putus saat kelamaan milih gambar di HP
-# ==============================================================
 with st.form("form_upload_resi", clear_on_submit=False):
     uploaded_files = st.file_uploader("Upload Foto Resi (Bisa banyak sekaligus)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
-    
-    # Tombol submit sekarang ada di dalam form
     tombol_proses = st.form_submit_button("Proses Resi 🚀", use_container_width=True)
 
-# Indikator visual biar user tau fotonya udah nyantol
 if uploaded_files and not tombol_proses:
     st.info(f"✅ Mantap! {len(uploaded_files)} file udah masuk keranjang. Silakan klik tombol Proses 🚀")
 
-# Logika berjalan HANYA JIKA tombol di dalam form diklik
 if tombol_proses:
     if not uploaded_files:
         st.warning("Upload fotonya dulu bro di dalam kotak!")
@@ -220,7 +216,7 @@ if tombol_proses:
             hasil_files = os.listdir(temp_dir)
             
             if len(hasil_files) > 0:
-                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi valid (Anti-Duplikat & Filter Batal aktif).")
+                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi valid.")
                 
                 js_files_array = []
                 for filename in hasil_files:
