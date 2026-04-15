@@ -13,13 +13,13 @@ import base64
 st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout="centered")
 
 st.title("✂️ Mesin Pemotong Resi Otomatis")
-st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat, Filter Batal")
+st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat")
 
-# --- FUNGSI MESIN TIKTOK (V8 - STABILITAS MATANG) ---
+# --- FUNGSI MESIN TIKTOK (V9 - MODE X-RAY TRANSPARAN) ---
 def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h_asli, w = img_asli.shape[:2]
     
-    # Pisau Cukur (Sesuai HP)
+    # Potong UI Menu (Tetap jalan)
     y_trim_atas = int(h_asli * 0.17)
     y_trim_bawah = int(h_asli * 0.85)
     
@@ -28,12 +28,11 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # EFEK BLUR DIHAPUS - Kembali murni ke logika aslimu!
+    # Kembali murni ke logika aslimu (tanpa blur)
     crop_gray = gray[:, int(w*0.05) : int(w*0.95)]
     row_std = np.std(crop_gray, axis=1)
     row_mean = np.mean(crop_gray, axis=1)
     
-    # Kembali ke rumus skriptiktokmatang.txt (Toleransi std sedikit dinaikkan untuk laptop)
     is_garis_pemisah = (row_std < 12) & (row_mean > 220) & (row_mean < 252)
     
     garis_ditemukan = []
@@ -47,7 +46,6 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                 start_y = y
         else:
             if in_garis:
-                # Ketebalan 5 pixel (Biar resolusi kecil di laptop tetap ke-detect)
                 if (y - start_y) >= 5: 
                     garis_ditemukan.append((start_y, y))
                 in_garis = False
@@ -56,7 +54,7 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
         if (h - start_y) >= 5: 
             garis_ditemukan.append((start_y, h))
 
-    # Smart Slicer: Garis potong dari paling atas (0) sampai paling bawah (h)
+    # Logika Smart Slicer (Atap ke Lantai)
     batas_y = [0]
     for g_start, g_end in garis_ditemukan:
         batas_y.append((g_start + g_end) // 2)
@@ -83,7 +81,11 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
             teks_gabungan = teks_1 + " " + teks_2
             teks_upper = teks_gabungan.upper()
             
+            # CEK APAKAH KENA FILTER BATAL (TIDAK DIBUANG, TAPI DITANDAI)
             if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
+                nama_file = f"TikTok_{global_counter}_TERDETEKSI_BATAL.jpg"
+                cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
+                global_counter += 1
                 continue 
             
             match = re.search(r'#\s*([A-Za-z0-9]{10,})', teks_gabungan)
@@ -97,10 +99,15 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                     nama_file = f"TikTok_{global_counter}_{nomor_pesanan}.jpg"
                     cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
                     global_counter += 1
+            else:
+                # KEMBALIKAN FITUR CEK MANUAL JIKA GAGAL BACA ANGKA
+                nama_file = f"TikTok_{global_counter}_CEK_MANUAL.jpg"
+                cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
+                global_counter += 1
 
     return global_counter
 
-# --- FUNGSI MESIN SHOPEE (Dikembalikan Utuh ke V5 yang Stabil) ---
+# --- FUNGSI MESIN SHOPEE ---
 def proses_shopee(img, global_counter, database_nomor, temp_dir):
     h, w = img.shape[:2]
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -144,6 +151,9 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
         teks_upper = teks_full.upper()
         
         if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
+            nama_file = f"Shopee_{global_counter}_TERDETEKSI_BATAL.jpg"
+            cv2.imwrite(os.path.join(temp_dir, nama_file), img[y_start_card:y_end_card, 0:w])
+            global_counter += 1
             return global_counter 
             
         match = re.search(r'([0-9]{6}[A-Z0-9]{8,10})', teks_full)
@@ -197,7 +207,7 @@ if tombol_proses:
     if not uploaded_files:
         st.warning("Upload fotonya dulu bro di dalam kotak!")
     else:
-        with st.spinner('Mesin sedang memotong, membaca nomor, dan menyaring resi batal...'):
+        with st.spinner('Membedah gambar dengan Mode X-Ray...'):
             temp_dir = "temp_hasil"
             if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
             os.makedirs(temp_dir)
@@ -217,7 +227,7 @@ if tombol_proses:
             hasil_files = os.listdir(temp_dir)
             
             if len(hasil_files) > 0:
-                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi valid.")
+                st.success(f"🎉 Selesai! Menemukan {len(hasil_files)} potongan (Cek nama file di bawah untuk diagnosa).")
                 
                 js_files_array = []
                 for filename in hasil_files:
@@ -263,7 +273,12 @@ if tombol_proses:
                     with col1:
                         st.image(img_bytes, use_container_width=True)
                     with col2:
-                        st.write(f"**{filename}**")
+                        # Kasih warna teks merah kalau bermasalah biar gampang dilirik
+                        if "TERDETEKSI_BATAL" in filename or "CEK_MANUAL" in filename:
+                            st.markdown(f"**🔴 {filename}**")
+                        else:
+                            st.write(f"**✅ {filename}**")
+                            
                         st.download_button(
                             label="📥 Download",
                             data=img_bytes,
@@ -273,4 +288,4 @@ if tombol_proses:
                         )
                     st.divider()
             else:
-                st.error("Tidak ada resi yang disimpan. Kemungkinan semua resi duplikat, dibatalkan, atau gagal terbaca nomornya.")
+                st.error("Sama sekali gagal memotong. Garis abu-abu tidak terdeteksi.")
