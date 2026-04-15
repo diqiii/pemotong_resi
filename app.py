@@ -15,16 +15,23 @@ st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout=
 st.title("✂️ Mesin Pemotong Resi Otomatis")
 st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat")
 
-# --- FUNGSI MESIN TIKTOK (100% DIKEMBALIKAN KE VERSI SKRIP MATANG) ---
-def proses_tiktok(img, global_counter, database_nomor, temp_dir):
-    h, w = img.shape[:2]
+# --- FUNGSI MESIN TIKTOK ---
+def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
+    h_asli, w = img_asli.shape[:2]
+    
+    # --- PISAU CUKUR CUSTOM (Sesuai kalibrasi HP mu) ---
+    y_trim_atas = int(h_asli * 0.17)
+    y_trim_bawah = int(h_asli * 0.85)
+    
+    img = img_asli[y_trim_atas:y_trim_bawah, 0:w]
+    h = img.shape[0] 
+    
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
     crop_gray = gray[:, int(w*0.05) : int(w*0.95)]
     row_std = np.std(crop_gray, axis=1)
     row_mean = np.mean(crop_gray, axis=1)
     
-    # Filter warna garis abu-abu
     is_garis_pemisah = (row_std < 8) & (row_mean > 225) & (row_mean < 250)
     
     garis_ditemukan = []
@@ -52,11 +59,9 @@ def proses_tiktok(img, global_counter, database_nomor, temp_dir):
             y_bawah = garis_ditemukan[i+1][0]
             tinggi_resi = y_bawah - y_atas
             
-            # Filter tinggi resi (Minimal 250px sesuai skrip matang)
             if tinggi_resi > 250:
                 crop = img[y_atas:y_bawah, 0:w]
                 
-                # --- MATA ELANG (DUAL OCR SCANNING) ---
                 header_h = int(tinggi_resi * 0.50)
                 crop_ocr = cv2.cvtColor(crop[0:header_h, :], cv2.COLOR_BGR2GRAY)
                 crop_ocr = cv2.resize(crop_ocr, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
@@ -73,19 +78,16 @@ def proses_tiktok(img, global_counter, database_nomor, temp_dir):
                 if not match:
                     match = re.search(r'(\d{15,})', teks_gabungan)
                 
-                # --- LOGIKA PENYIMPANAN & ANTI-DUPLIKAT (SESUAI SKRIP MATANG) ---
                 if match:
                     nomor_pesanan = match.group(1)
                     if nomor_pesanan in database_nomor:
-                        # Jika duplikat, biarkan saja (skip) tanpa menambah counter
-                        pass 
+                        pass # Skip kalau duplikat
                     else:
                         database_nomor.add(nomor_pesanan)
                         nama_file = f"TikTok_{global_counter}_{nomor_pesanan}.jpg"
                         cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
                         global_counter += 1
                 else:
-                    # Kalau scan gagal, simpan sebagai CEK MANUAL agar tidak hilang
                     nama_file = f"TikTok_{global_counter}_CEK_MANUAL.jpg"
                     cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
                     global_counter += 1
