@@ -15,10 +15,11 @@ st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout=
 st.title("✂️ Mesin Pemotong Resi Otomatis")
 st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat, Filter Batal")
 
-# --- FUNGSI MESIN TIKTOK (V7 - PERBAIKAN FATAL PEMOTONGAN) ---
+# --- FUNGSI MESIN TIKTOK (V8 - STABILITAS MATANG) ---
 def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h_asli, w = img_asli.shape[:2]
     
+    # Pisau Cukur (Sesuai HP)
     y_trim_atas = int(h_asli * 0.17)
     y_trim_bawah = int(h_asli * 0.85)
     
@@ -26,14 +27,14 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h = img.shape[0] 
     
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
     
-    crop_gray = blur[:, int(w*0.05) : int(w*0.95)]
+    # EFEK BLUR DIHAPUS - Kembali murni ke logika aslimu!
+    crop_gray = gray[:, int(w*0.05) : int(w*0.95)]
     row_std = np.std(crop_gray, axis=1)
     row_mean = np.mean(crop_gray, axis=1)
     
-    # Toleransi Warna Diperlebar
-    is_garis_pemisah = (row_std < 15) & (row_mean > 200) & (row_mean < 254)
+    # Kembali ke rumus skriptiktokmatang.txt (Toleransi std sedikit dinaikkan untuk laptop)
+    is_garis_pemisah = (row_std < 12) & (row_mean > 220) & (row_mean < 252)
     
     garis_ditemukan = []
     in_garis = False
@@ -46,6 +47,7 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                 start_y = y
         else:
             if in_garis:
+                # Ketebalan 5 pixel (Biar resolusi kecil di laptop tetap ke-detect)
                 if (y - start_y) >= 5: 
                     garis_ditemukan.append((start_y, y))
                 in_garis = False
@@ -54,23 +56,17 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
         if (h - start_y) >= 5: 
             garis_ditemukan.append((start_y, h))
 
-    # =========================================================
-    # PERBAIKAN FATAL: LOGIKA "SMART SLICER"
-    # Pastikan Pixel 0 (Atap) dan Pixel H (Lantai) ikut dihitung!
-    # =========================================================
+    # Smart Slicer: Garis potong dari paling atas (0) sampai paling bawah (h)
     batas_y = [0]
     for g_start, g_end in garis_ditemukan:
-        # Ambil titik tengah dari ketebalan garis abu-abu
         batas_y.append((g_start + g_end) // 2)
     batas_y.append(h)
 
-    # Sekarang potong berdasarkan urutan batas yang sudah valid
     for i in range(len(batas_y) - 1):
         y_atas = batas_y[i]
         y_bawah = batas_y[i+1]
         tinggi_resi = y_bawah - y_atas
         
-        # Validasi tinggi resi (Minimal 150 pixel)
         if tinggi_resi > 150: 
             crop = img[y_atas:y_bawah, 0:w]
             
@@ -87,7 +83,6 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
             teks_gabungan = teks_1 + " " + teks_2
             teks_upper = teks_gabungan.upper()
             
-            # Jurus Anti-Batal
             if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
                 continue 
             
@@ -105,7 +100,7 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
 
     return global_counter
 
-# --- FUNGSI MESIN SHOPEE (V7 - Diperbarui agar sekuat TikTok) ---
+# --- FUNGSI MESIN SHOPEE (Dikembalikan Utuh ke V5 yang Stabil) ---
 def proses_shopee(img, global_counter, database_nomor, temp_dir):
     h, w = img.shape[:2]
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -132,19 +127,16 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
                 if y - start_y >= 10: gaps.append((start_y, y))
                 in_gap = False
                 
-    # Perbaikan "Smart Slicer" juga diterapkan di Shopee
-    batas_y_shopee = [0]
-    for g_start, g_end in gaps:
-        batas_y_shopee.append((g_start + g_end) // 2)
-    batas_y_shopee.append(h)
+    if not gaps: return global_counter
         
-    for i in range(len(batas_y_shopee) - 1):
-        y_start_card = batas_y_shopee[i]
-        y_end_card = batas_y_shopee[i+1]
+    for i in range(len(gaps)):
+        y_start_card = gaps[i][1] if i < len(gaps) else 0
+        y_end_card = gaps[i+1][0] if i+1 < len(gaps) else h
         
         if y_end_card - y_start_card < 200: continue
         
         card_gray = gray[y_start_card:y_end_card, 0:w]
+        
         card_ocr = cv2.resize(card_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
         thresh = cv2.adaptiveThreshold(card_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
         
@@ -152,14 +144,15 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
         teks_upper = teks_full.upper()
         
         if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
-            continue # Lanjut ke blok resi selanjutnya
+            return global_counter 
             
         match = re.search(r'([0-9]{6}[A-Z0-9]{8,10})', teks_full)
         
         if match:
             nomor_pesanan = match.group(1)
+            
             if nomor_pesanan in database_nomor:
-                continue 
+                return global_counter 
             
             d = pytesseract.image_to_data(thresh, output_type=pytesseract.Output.DICT)
             lowest_text_y = 0
@@ -186,6 +179,7 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
             nama_file = f"Shopee_{global_counter}_{nomor_pesanan}.jpg"
             cv2.imwrite(os.path.join(temp_dir, nama_file), final_crop)
             global_counter += 1
+            return global_counter
             
     return global_counter
 
