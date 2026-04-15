@@ -7,6 +7,7 @@ import pytesseract
 import re
 import zipfile
 import io
+import base64
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout="centered")
@@ -162,7 +163,7 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
 platform = st.radio("Pilih Platform Resi:", ("TikTok Shop", "Shopee"), horizontal=True)
 uploaded_files = st.file_uploader("Upload Foto Resi (Bisa banyak sekaligus)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
 
-if st.button("Proses Resi 🚀"):
+if st.button("Proses Resi 🚀", use_container_width=True):
     if not uploaded_files:
         st.warning("Upload fotonya dulu bro!")
     else:
@@ -176,7 +177,6 @@ if st.button("Proses Resi 🚀"):
             
             # Loop semua foto yang diupload
             for file in uploaded_files:
-                # Convert file uploader to cv2 image
                 file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
                 img = cv2.imdecode(file_bytes, 1)
                 
@@ -185,23 +185,65 @@ if st.button("Proses Resi 🚀"):
                 elif platform == "Shopee":
                     global_counter = proses_shopee(img, global_counter, database_nomor, temp_dir)
             
-            # Buat file ZIP
             hasil_files = os.listdir(temp_dir)
+            
             if len(hasil_files) > 0:
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                    for filename in hasil_files:
-                        file_path = os.path.join(temp_dir, filename)
-                        zip_file.write(file_path, arcname=filename)
+                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi unik.")
                 
-                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi unik (Anti-Duplikat aktif).")
+                # --- 1. SIAPKAN TOMBOL MAGIC (DOWNLOAD SEMUA) ---
+                js_files_array = []
+                for filename in hasil_files:
+                    file_path = os.path.join(temp_dir, filename)
+                    with open(file_path, "rb") as f:
+                        b64_str = base64.b64encode(f.read()).decode()
+                        js_files_array.append(f'{{name: "{filename}", data: "data:image/jpeg;base64,{b64_str}"}}')
                 
-                # Tombol Download
-                st.download_button(
-                    label="📥 Download Hasil Potongan (ZIP)",
-                    data=zip_buffer.getvalue(),
-                    file_name=f"Hasil_Resi_{platform}.zip",
-                    mime="application/zip"
-                )
+                js_array_str = ",\n".join(js_files_array)
+                
+                custom_html = f"""
+                <button id="dl-btn" style="width:100%; padding: 15px; background-color:#FF4B4B; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:16px; margin-bottom: 20px;">
+                    🚀 DOWNLOAD SEMUA {len(hasil_files)} GAMBAR SEKALIGUS
+                </button>
+                <script>
+                document.getElementById('dl-btn').addEventListener('click', async function() {{
+                    const files = [
+                        {js_array_str}
+                    ];
+                    for(let i=0; i<files.length; i++) {{
+                        let link = document.createElement('a');
+                        link.href = files[i].data;
+                        link.download = files[i].name;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        await new Promise(r => setTimeout(r, 300));
+                    }}
+                }});
+                </script>
+                """
+                st.components.v1.html(custom_html, height=80)
+                
+                # --- 2. PREVIEW & DOWNLOAD SATUAN ---
+                st.markdown("---")
+                st.markdown("### Preview Hasil Potongan:")
+                
+                for filename in hasil_files:
+                    file_path = os.path.join(temp_dir, filename)
+                    with open(file_path, "rb") as file:
+                        img_bytes = file.read()
+                    
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        st.image(img_bytes, use_container_width=True)
+                    with col2:
+                        st.write(f"**{filename}**")
+                        st.download_button(
+                            label="📥 Download",
+                            data=img_bytes,
+                            file_name=filename,
+                            mime="image/jpeg",
+                            key=filename
+                        )
+                    st.divider()
             else:
                 st.error("Gagal memproses gambar. Pastikan gambar resi valid dan sesuai platform.")
