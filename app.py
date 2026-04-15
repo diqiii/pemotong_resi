@@ -15,7 +15,7 @@ st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout=
 st.title("✂️ Mesin Pemotong Resi Otomatis")
 st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat")
 
-# --- FUNGSI MESIN TIKTOK ---
+# --- FUNGSI MESIN TIKTOK (100% DIKEMBALIKAN KE VERSI SKRIP MATANG) ---
 def proses_tiktok(img, global_counter, database_nomor, temp_dir):
     h, w = img.shape[:2]
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -24,6 +24,7 @@ def proses_tiktok(img, global_counter, database_nomor, temp_dir):
     row_std = np.std(crop_gray, axis=1)
     row_mean = np.mean(crop_gray, axis=1)
     
+    # Filter warna garis abu-abu
     is_garis_pemisah = (row_std < 8) & (row_mean > 225) & (row_mean < 250)
     
     garis_ditemukan = []
@@ -37,10 +38,13 @@ def proses_tiktok(img, global_counter, database_nomor, temp_dir):
                 start_y = y
         else:
             if in_garis:
-                if (y - start_y) >= 10: garis_ditemukan.append((start_y, y))
+                if (y - start_y) >= 10: 
+                    garis_ditemukan.append((start_y, y))
                 in_garis = False
+
     if in_garis:
-        if (h - start_y) >= 10: garis_ditemukan.append((start_y, h))
+        if (h - start_y) >= 10: 
+            garis_ditemukan.append((start_y, h))
 
     if len(garis_ditemukan) >= 2:
         for i in range(len(garis_ditemukan) - 1):
@@ -48,15 +52,18 @@ def proses_tiktok(img, global_counter, database_nomor, temp_dir):
             y_bawah = garis_ditemukan[i+1][0]
             tinggi_resi = y_bawah - y_atas
             
+            # Filter tinggi resi (Minimal 250px sesuai skrip matang)
             if tinggi_resi > 250:
                 crop = img[y_atas:y_bawah, 0:w]
                 
+                # --- MATA ELANG (DUAL OCR SCANNING) ---
                 header_h = int(tinggi_resi * 0.50)
                 crop_ocr = cv2.cvtColor(crop[0:header_h, :], cv2.COLOR_BGR2GRAY)
                 crop_ocr = cv2.resize(crop_ocr, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
                 
                 thresh_adaptive = cv2.adaptiveThreshold(crop_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
                 teks_1 = pytesseract.image_to_string(thresh_adaptive)
+                
                 kontras = cv2.convertScaleAbs(crop_ocr, alpha=1.5, beta=0)
                 teks_2 = pytesseract.image_to_string(kontras)
                 
@@ -66,19 +73,23 @@ def proses_tiktok(img, global_counter, database_nomor, temp_dir):
                 if not match:
                     match = re.search(r'(\d{15,})', teks_gabungan)
                 
+                # --- LOGIKA PENYIMPANAN & ANTI-DUPLIKAT (SESUAI SKRIP MATANG) ---
                 if match:
                     nomor_pesanan = match.group(1)
                     if nomor_pesanan in database_nomor:
-                        continue # Skip duplikat
-                    
-                    database_nomor.add(nomor_pesanan)
-                    nama_file = f"TikTok_{global_counter}_{nomor_pesanan}.jpg"
+                        # Jika duplikat, biarkan saja (skip) tanpa menambah counter
+                        pass 
+                    else:
+                        database_nomor.add(nomor_pesanan)
+                        nama_file = f"TikTok_{global_counter}_{nomor_pesanan}.jpg"
+                        cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
+                        global_counter += 1
                 else:
+                    # Kalau scan gagal, simpan sebagai CEK MANUAL agar tidak hilang
                     nama_file = f"TikTok_{global_counter}_CEK_MANUAL.jpg"
+                    cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
+                    global_counter += 1
 
-                # Simpan ke folder temp
-                cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
-                global_counter += 1
     return global_counter
 
 # --- FUNGSI MESIN SHOPEE ---
@@ -128,7 +139,7 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
             nomor_pesanan = match.group(1)
             
             if nomor_pesanan in database_nomor:
-                return global_counter # Skip duplikat
+                return global_counter 
             
             d = pytesseract.image_to_data(thresh, output_type=pytesseract.Output.DICT)
             lowest_text_y = 0
@@ -175,7 +186,6 @@ if st.button("Proses Resi 🚀", use_container_width=True):
             global_counter = 1
             database_nomor = set()
             
-            # Loop semua foto yang diupload
             for file in uploaded_files:
                 file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
                 img = cv2.imdecode(file_bytes, 1)
@@ -188,7 +198,7 @@ if st.button("Proses Resi 🚀", use_container_width=True):
             hasil_files = os.listdir(temp_dir)
             
             if len(hasil_files) > 0:
-                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi unik.")
+                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi.")
                 
                 # --- 1. SIAPKAN TOMBOL MAGIC (DOWNLOAD SEMUA) ---
                 js_files_array = []
