@@ -13,13 +13,12 @@ import base64
 st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout="centered")
 
 st.title("✂️ Mesin Pemotong Resi Otomatis")
-st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat")
+st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat, Filter Batal")
 
 # --- FUNGSI MESIN TIKTOK ---
 def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h_asli, w = img_asli.shape[:2]
     
-    # --- PISAU CUKUR CUSTOM (Sesuai kalibrasi HP mu) ---
     y_trim_atas = int(h_asli * 0.17)
     y_trim_bawah = int(h_asli * 0.85)
     
@@ -73,24 +72,24 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                 teks_2 = pytesseract.image_to_string(kontras)
                 
                 teks_gabungan = teks_1 + " " + teks_2
+                teks_upper = teks_gabungan.upper()
+                
+                # --- JURUS SATPAM 1: TOLAK RESI BATAL ---
+                if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
+                    continue # Langsung buang, lanjut ke resi berikutnya
                 
                 match = re.search(r'#\s*([A-Za-z0-9]{10,})', teks_gabungan)
                 if not match:
                     match = re.search(r'(\d{15,})', teks_gabungan)
                 
+                # --- JURUS SATPAM 2: TOLAK JIKA GAK ADA NOMOR (Hilangkan CEK MANUAL) ---
                 if match:
                     nomor_pesanan = match.group(1)
-                    if nomor_pesanan in database_nomor:
-                        pass # Skip kalau duplikat
-                    else:
+                    if nomor_pesanan not in database_nomor:
                         database_nomor.add(nomor_pesanan)
                         nama_file = f"TikTok_{global_counter}_{nomor_pesanan}.jpg"
                         cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
                         global_counter += 1
-                else:
-                    nama_file = f"TikTok_{global_counter}_CEK_MANUAL.jpg"
-                    cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
-                    global_counter += 1
 
     return global_counter
 
@@ -135,8 +134,15 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
         thresh = cv2.adaptiveThreshold(card_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
         
         teks_full = pytesseract.image_to_string(thresh)
+        teks_upper = teks_full.upper()
+        
+        # --- JURUS SATPAM 1: TOLAK RESI BATAL ---
+        if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
+            return global_counter # Langsung buang
+            
         match = re.search(r'([0-9]{6}[A-Z0-9]{8,10})', teks_full)
         
+        # --- JURUS SATPAM 2: HANYA SIMPAN JIKA ADA NOMOR ---
         if match:
             nomor_pesanan = match.group(1)
             
@@ -176,11 +182,15 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
 platform = st.radio("Pilih Platform Resi:", ("TikTok Shop", "Shopee"), horizontal=True)
 uploaded_files = st.file_uploader("Upload Foto Resi (Bisa banyak sekaligus)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
 
+# --- INDIKATOR UPLOAD BERHASIL (MENCEGAH ERROR UI) ---
+if uploaded_files:
+    st.info(f"✅ Mantap! {len(uploaded_files)} file berhasil masuk ke server. Silakan klik tombol Proses di bawah.")
+
 if st.button("Proses Resi 🚀", use_container_width=True):
     if not uploaded_files:
-        st.warning("Upload fotonya dulu bro!")
+        st.warning("Upload fotonya dulu bro, dan tunggu sampai selesai loading!")
     else:
-        with st.spinner('Mesin sedang memotong dan membaca nomor...'):
+        with st.spinner('Mesin sedang memotong, membaca nomor, dan menyaring resi batal...'):
             temp_dir = "temp_hasil"
             if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
             os.makedirs(temp_dir)
@@ -200,9 +210,8 @@ if st.button("Proses Resi 🚀", use_container_width=True):
             hasil_files = os.listdir(temp_dir)
             
             if len(hasil_files) > 0:
-                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi.")
+                st.success(f"🎉 Selesai! Berhasil memproses {len(hasil_files)} resi valid (Anti-Duplikat & Filter Batal aktif).")
                 
-                # --- 1. SIAPKAN TOMBOL MAGIC (DOWNLOAD SEMUA) ---
                 js_files_array = []
                 for filename in hasil_files:
                     file_path = os.path.join(temp_dir, filename)
@@ -235,7 +244,6 @@ if st.button("Proses Resi 🚀", use_container_width=True):
                 """
                 st.components.v1.html(custom_html, height=80)
                 
-                # --- 2. PREVIEW & DOWNLOAD SATUAN ---
                 st.markdown("---")
                 st.markdown("### Preview Hasil Potongan:")
                 
@@ -258,4 +266,4 @@ if st.button("Proses Resi 🚀", use_container_width=True):
                         )
                     st.divider()
             else:
-                st.error("Gagal memproses gambar. Pastikan gambar resi valid dan sesuai platform.")
+                st.error("Tidak ada resi yang disimpan. Kemungkinan semua resi duplikat, dibatalkan, atau gagal terbaca nomornya.")
