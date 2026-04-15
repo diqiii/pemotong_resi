@@ -180,15 +180,25 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
 
 # --- ANTARMUKA STREAMLIT ---
 platform = st.radio("Pilih Platform Resi:", ("TikTok Shop", "Shopee"), horizontal=True)
-uploaded_files = st.file_uploader("Upload Foto Resi (Bisa banyak sekaligus)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
 
-# --- INDIKATOR UPLOAD BERHASIL (MENCEGAH ERROR UI) ---
-if uploaded_files:
-    st.info(f"✅ Mantap! {len(uploaded_files)} file berhasil masuk ke server. Silakan klik tombol Proses di bawah.")
+# ==============================================================
+# PERBAIKAN: BUNGKUS UPLOADER & TOMBOL KE DALAM "FORM"
+# Ini mencegah koneksi putus saat kelamaan milih gambar di HP
+# ==============================================================
+with st.form("form_upload_resi", clear_on_submit=False):
+    uploaded_files = st.file_uploader("Upload Foto Resi (Bisa banyak sekaligus)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True)
+    
+    # Tombol submit sekarang ada di dalam form
+    tombol_proses = st.form_submit_button("Proses Resi 🚀", use_container_width=True)
 
-if st.button("Proses Resi 🚀", use_container_width=True):
+# Indikator visual biar user tau fotonya udah nyantol
+if uploaded_files and not tombol_proses:
+    st.info(f"✅ Mantap! {len(uploaded_files)} file udah masuk keranjang. Silakan klik tombol Proses 🚀")
+
+# Logika berjalan HANYA JIKA tombol di dalam form diklik
+if tombol_proses:
     if not uploaded_files:
-        st.warning("Upload fotonya dulu bro, dan tunggu sampai selesai loading!")
+        st.warning("Upload fotonya dulu bro di dalam kotak!")
     else:
         with st.spinner('Mesin sedang memotong, membaca nomor, dan menyaring resi batal...'):
             temp_dir = "temp_hasil"
