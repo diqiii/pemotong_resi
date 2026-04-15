@@ -19,8 +19,8 @@ st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Ant
 def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h_asli, w = img_asli.shape[:2]
     
-    y_trim_atas = int(h_asli * 0.17)
-    y_trim_bawah = int(h_asli * 0.85)
+    y_trim_atas = int(h_asli * 0.16)
+    y_trim_bawah = int(h_asli * 0.86)
     
     img = img_asli[y_trim_atas:y_trim_bawah, 0:w]
     h = img.shape[0] 
