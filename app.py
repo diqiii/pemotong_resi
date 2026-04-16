@@ -9,43 +9,45 @@ import zipfile
 import io
 import base64
 
-# --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout="centered")
+st.set_page_config(page_title="Mesin Pemotong Resi", page_icon="✂️", layout="wide")
+
+# ==========================================
+# PENGATURAN PISAU CUKUR (SIDEBAR)
+# ==========================================
+with st.sidebar:
+    st.header("⚙️ Pengaturan Pisau Cukur")
+    st.markdown("Otomatis di **10%** (Sesuai hasil racikan paling pas). Geser ke **0%** jika gambar sudah bersih dari menu HP.")
+    # Default diset ke 10 sesuai permintaan
+    trim_atas_ui = st.slider("✂️ Potong Atas (%)", 0, 30, 10, help="Membuang menu atas")
+    trim_bawah_ui = st.slider("✂️ Potong Bawah (%)", 0, 30, 10, help="Membuang menu bawah")
+    
+    trim_atas_pct = trim_atas_ui / 100.0
+    trim_bawah_pct = 1.0 - (trim_bawah_ui / 100.0)
 
 st.title("✂️ Mesin Pemotong Resi Otomatis")
-st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Auto-Crop, OCR, Anti-Duplikat, Filter Batal")
+st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Original Core Logic + Auto-Filter")
 
-# --- FUNGSI MESIN TIKTOK (V10 - SENSOR WARNA ANTI-MERAH) ---
+# --- FUNGSI MESIN TIKTOK (V13 - FILTER SENYAP & DEFAULT 10%) ---
 def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
     h_asli, w = img_asli.shape[:2]
     
-    y_trim_atas = int(h_asli * 0.17)
-    y_trim_bawah = int(h_asli * 0.85)
-    
+    y_trim_atas = int(h_asli * trim_atas_pct)
+    y_trim_bawah = int(h_asli * trim_bawah_pct)
+    if y_trim_bawah <= y_trim_atas: 
+        y_trim_bawah = h_asli
+        y_trim_atas = 0
+        
     img = img_asli[y_trim_atas:y_trim_bawah, 0:w]
     h = img.shape[0] 
     
-    # Bikin 2 Lensa: Hitam-Putih (Grayscale) dan Sensor Warna (HSV)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    
-    # Ambil tingkat Kepekatan Warna (Saturation)
-    sat = hsv[:, :, 1] 
-    
     crop_gray = gray[:, int(w*0.05) : int(w*0.95)]
-    crop_sat = sat[:, int(w*0.05) : int(w*0.95)]
     
     row_std = np.std(crop_gray, axis=1)
     row_mean = np.mean(crop_gray, axis=1)
-    sat_mean = np.mean(crop_sat, axis=1) # Rata-rata warna di baris itu
     
-    # =======================================================
-    # LOGIKA DEWA (USULANMU):
-    # std < 15 (Garis Datar)
-    # mean > 220 (Abu-abu Terang)
-    # sat_mean < 30 (HARUS NIRWARNA! Tulisan Merah auto-ditolak)
-    # =======================================================
-    is_garis_pemisah = (row_std < 15) & (row_mean > 220) & (row_mean < 252) & (sat_mean < 30)
+    # 100% KEMBALI KE RUMUS ASLIMU! (Maksimal 250)
+    is_garis_pemisah = (row_std < 8) & (row_mean > 225) & (row_mean < 250)
     
     garis_ditemukan = []
     in_garis = False
@@ -58,14 +60,15 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                 start_y = y
         else:
             if in_garis:
-                if (y - start_y) >= 5: 
+                if (y - start_y) >= 10: # Syarat tebal 10 pixel sesuai skrip asli
                     garis_ditemukan.append((start_y, y))
                 in_garis = False
 
     if in_garis:
-        if (h - start_y) >= 5: 
+        if (h - start_y) >= 10: 
             garis_ditemukan.append((start_y, h))
 
+    # Smart Slicer biar resi pertama dan terakhir gak kebuang
     batas_y = [0]
     for g_start, g_end in garis_ditemukan:
         batas_y.append((g_start + g_end) // 2)
@@ -79,8 +82,9 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
         if tinggi_resi > 150: 
             crop = img[y_atas:y_bawah, 0:w]
             
-            # BACA 100% AREA GAMBAR (Tidak lagi dibatasi 50% atas)
-            crop_ocr = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            # OCR LOGIC DARI SKRIP MATANG
+            header_h = int(tinggi_resi * 0.50)
+            crop_ocr = cv2.cvtColor(crop[0:header_h, :], cv2.COLOR_BGR2GRAY)
             crop_ocr = cv2.resize(crop_ocr, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
             
             thresh_adaptive = cv2.adaptiveThreshold(crop_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
@@ -92,17 +96,16 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
             teks_gabungan = teks_1 + " " + teks_2
             teks_upper = teks_gabungan.upper()
             
-            # Filter Batal (X-Ray Mode)
+            # --- JURUS SATPAM (MODE SENYAP) ---
+            # 1. Kalau dibatalkan, langsung skip (buang)
             if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
-                nama_file = f"TikTok_{global_counter}_TERDETEKSI_BATAL.jpg"
-                cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
-                global_counter += 1
                 continue 
             
             match = re.search(r'#\s*([A-Za-z0-9]{10,})', teks_gabungan)
             if not match:
                 match = re.search(r'(\d{15,})', teks_gabungan)
             
+            # 2. Kalau ada nomor, simpan. Kalau GAK ADA nomor, dibuang (tidak ada CEK_MANUAL lagi)
             if match:
                 nomor_pesanan = match.group(1)
                 if nomor_pesanan not in database_nomor:
@@ -110,14 +113,10 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
                     nama_file = f"TikTok_{global_counter}_{nomor_pesanan}.jpg"
                     cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
                     global_counter += 1
-            else:
-                nama_file = f"TikTok_{global_counter}_CEK_MANUAL.jpg"
-                cv2.imwrite(os.path.join(temp_dir, nama_file), crop)
-                global_counter += 1
 
     return global_counter
 
-# --- FUNGSI MESIN SHOPEE ---
+# --- FUNGSI MESIN SHOPEE (UTUH & SEMPURNA) ---
 def proses_shopee(img, global_counter, database_nomor, temp_dir):
     h, w = img.shape[:2]
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -153,24 +152,15 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
         if y_end_card - y_start_card < 200: continue
         
         card_gray = gray[y_start_card:y_end_card, 0:w]
-        
         card_ocr = cv2.resize(card_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
         thresh = cv2.adaptiveThreshold(card_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
         
         teks_full = pytesseract.image_to_string(thresh)
-        teks_upper = teks_full.upper()
-        
-        if "BATAL" in teks_upper or "CANCELED" in teks_upper or "CANCELLED" in teks_upper:
-            nama_file = f"Shopee_{global_counter}_TERDETEKSI_BATAL.jpg"
-            cv2.imwrite(os.path.join(temp_dir, nama_file), img[y_start_card:y_end_card, 0:w])
-            global_counter += 1
-            return global_counter 
             
         match = re.search(r'([0-9]{6}[A-Z0-9]{8,10})', teks_full)
         
         if match:
             nomor_pesanan = match.group(1)
-            
             if nomor_pesanan in database_nomor:
                 return global_counter 
             
@@ -194,7 +184,6 @@ def proses_shopee(img, global_counter, database_nomor, temp_dir):
                     break
             
             final_crop = img[y_start_card : y_start_card + cut_y, 0:w]
-            
             database_nomor.add(nomor_pesanan)
             nama_file = f"Shopee_{global_counter}_{nomor_pesanan}.jpg"
             cv2.imwrite(os.path.join(temp_dir, nama_file), final_crop)
@@ -211,13 +200,13 @@ with st.form("form_upload_resi", clear_on_submit=False):
     tombol_proses = st.form_submit_button("Proses Resi 🚀", use_container_width=True)
 
 if uploaded_files and not tombol_proses:
-    st.info(f"✅ Mantap! {len(uploaded_files)} file udah masuk keranjang. Silakan klik tombol Proses 🚀")
+    st.info(f"✅ Mantap! {len(uploaded_files)} file udah masuk keranjang.")
 
 if tombol_proses:
     if not uploaded_files:
         st.warning("Upload fotonya dulu bro di dalam kotak!")
     else:
-        with st.spinner('Membedah gambar dengan Mode Anti-Merah...'):
+        with st.spinner('Membedah resi...'):
             temp_dir = "temp_hasil"
             if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
             os.makedirs(temp_dir)
@@ -237,7 +226,7 @@ if tombol_proses:
             hasil_files = os.listdir(temp_dir)
             
             if len(hasil_files) > 0:
-                st.success(f"🎉 Selesai! Menemukan {len(hasil_files)} potongan.")
+                st.success(f"🎉 Selesai! Menemukan {len(hasil_files)} potongan resi valid (Bersih dari Batal & Tanpa Nomor).")
                 
                 js_files_array = []
                 for filename in hasil_files:
@@ -283,10 +272,7 @@ if tombol_proses:
                     with col1:
                         st.image(img_bytes, use_container_width=True)
                     with col2:
-                        if "TERDETEKSI_BATAL" in filename or "CEK_MANUAL" in filename:
-                            st.markdown(f"**🔴 {filename}**")
-                        else:
-                            st.write(f"**✅ {filename}**")
+                        st.write(f"**✅ {filename}**")
                             
                         st.download_button(
                             label="📥 Download",
@@ -297,4 +283,4 @@ if tombol_proses:
                         )
                     st.divider()
             else:
-                st.error("Sama sekali gagal memotong. Pastikan gambar valid.")
+                st.error("Tidak ada resi valid yang disimpan. Kemungkinan semua resi duplikat, dibatalkan, atau gagal terbaca nomornya.")
