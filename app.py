@@ -27,7 +27,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**📏 SENSOR GARIS (Khusus TikTok)**")
     # Trik Baru: Mengabaikan garis tipis di dalam resi
-    tebal_garis_ui = st.slider("Tebal Garis Minimal (px)", 5, 60, 25, help="Naikkan angka ini jika resi kepotong di tengah (kena garis kecil). Turunkan jika 2 resi malah menyambung.")
+    tebal_garis_ui = st.slider("Tebal Garis Minimal (px)", 5, 60, 10, help="Naikkan angka ini jika resi kepotong di tengah (kena garis kecil). Turunkan jika 2 resi malah menyambung.")
 
 st.title("✂️ Mesin Pemotong Resi Otomatis")
 st.markdown("**Platform:** TikTok Shop & Shopee | **Fitur:** Original Core Logic + Auto-Filter")
