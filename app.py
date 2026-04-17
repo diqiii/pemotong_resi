@@ -19,7 +19,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**✂️ PISAU CUKUR (Potong Layar HP)**")
     trim_atas_ui = st.slider("Potong Atas (%)", 0, 30, 10, help="Membuang menu atas (Baterai, Sinyal, dll)")
-    trim_bawah_ui = st.slider("Potong Bawah (%)", 0, 30, 10, help="Membuang menu bawah (Tombol dll)")
+    trim_bawah_ui = st.slider("Potong Bawah (%)", 0, 30, 15, help="Membuang menu bawah (Tombol dll)")
     
     trim_atas_pct = trim_atas_ui / 100.0
     trim_bawah_pct = 1.0 - (trim_bawah_ui / 100.0)
@@ -83,7 +83,7 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
         y_bawah = batas_y[i+1]
         tinggi_resi = y_bawah - y_atas
         
-        if tinggi_resi > 150: 
+        if tinggi_resi > 250: 
             crop = img[y_atas:y_bawah, 0:w]
             
             header_h = int(tinggi_resi * 0.50)
