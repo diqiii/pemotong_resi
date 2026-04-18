@@ -83,7 +83,7 @@ def proses_tiktok(img_asli, global_counter, database_nomor, temp_dir):
         y_bawah = batas_y[i+1]
         tinggi_resi = y_bawah - y_atas
         
-        if tinggi_resi > 300: 
+        if tinggi_resi > 270: 
             crop = img[y_atas:y_bawah, 0:w]
             
             header_h = int(tinggi_resi * 0.50)
